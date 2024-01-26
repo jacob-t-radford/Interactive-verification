@@ -1,0 +1,813 @@
+<!doctype html>
+
+<head>
+    <title>FourCastNet</title>
+    <link rel="shortcut icon" href="./snowflake.png" />
+    <link rel="stylesheet" href="/static/css/fcngeojsonstyles.css">
+    <link rel="stylesheet" href="/static/css/leaflet.css">
+    <link rel="stylesheet" href="/static/css/jquery-ui.css" type="text/css">
+	<link rel="stylesheet" href="/static/js/Leaflet.markercluster-1.4.1/dist/MarkerCluster.css" />
+	<link rel="stylesheet" href="/static/js/Leaflet.markercluster-1.4.1/dist/MarkerCluster.Default.css" />
+	<link rel="stylesheet" type="text/css" href="/static/css/sounding.css">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+</head>
+
+<body class="bodystyle">
+    <div id="everything">
+        <ul class="VariableUL">
+			<li style="color:white;padding:10px;">Filters:
+			</li>
+            <li class="VariableItems" onclick="resizeClusterIcons(0)">Rain
+            </li>
+            <li class="VariableItems" onclick="resizeClusterIcons(3)">Snow
+            </li>
+            <li class="VariableItems" onclick="resizeClusterIcons(1)">Sleet
+            </li>
+            <li class="VariableItems" onclick="resizeClusterIcons(2)">Freezing Rain
+            </li>
+        </ul>
+        <div id="map">
+            <div class="loader"></div>
+            <div id="canvascontainer">
+                <canvas width="130" height="600" id="cv"></canvas>
+            </div>
+        </div>
+
+		<div id="container">
+		<div id="mainbox"></div>
+		<div id="barchart">
+		<div id="warning"></div>
+    </div>
+</body>
+
+<script src="/static/js/leaflet.js.1"></script>
+<script src="/static/js/leaflet.ajax.min.js"></script>
+<script src="https://unpkg.com/leaflet.vectorgrid@latest/dist/Leaflet.VectorGrid.bundled.js"></script>
+<script type="text/javascript" src="/static/js/world-countries-simple.js"></script>
+<script type="text/javascript" src="/static/js/usstates_wrap.js"></script>
+<script type="text/javascript" src="/static/js/fcn_testing.js"></script>
+<script src="/static/js/jquery-1.9.1.min.js"></script>
+<script src="/static/js/jquery-ui.js"></script>
+<script src="/static/js/jquery.ui.touch-punch.min.js"></script>
+<script src="/static/js/SliderControl.js"></script>
+<script src="/static/js/moment.js"></script>
+<script src="/static/js/js-colormaps2.js"></script>
+<script src="/static/js/Leaflet.Graticule.js"></script>
+<script src="/static/js/value_inverter.js"></script>
+<script src="/static/js/BoundaryCanvas.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/heatmap.js/2.0.2/heatmap.min.js"></script>
+<script src="/static/js/leaflet-heatmap.js"></script>
+<script src="/static/js/Leaflet.markercluster-1.4.1/dist/leaflet.markercluster-src.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.3/d3.min.js"></script>
+<script>
+	raincheck = true
+	snowcheck = true
+	ipcheck = true
+	frzrcheck = true
+
+
+    var corner1 = L.latLng(-90, -Infinity);
+    var corner2 = L.latLng(90,Infinity);
+    var LeafletMap = L.map('map',{
+        renderer: L.canvas(),
+        keyboard: false,
+        center: [35,-96],   
+        zoom: 4,
+        minZoom: 2,
+        maxZoom: 13,
+        maxBounds: new L.LatLngBounds(new L.LatLng(-90, Number.NEGATIVE_INFINITY), new L.LatLng(90, Number.POSITIVE_INFINITY)),
+        maxBoundsViscosity: 0.25
+    });
+
+    var CartoDB_Voyager = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+    }).addTo(LeafletMap)
+
+    var myStyleUS = {
+        "color": "black",
+        "weight":1,
+        "fill":false,
+    }
+    var myStyleUScounties = {
+        "color": "black",
+        "weight":.25,
+        "fill":false,
+    }
+
+    var vectorGrid = L.vectorGrid.slicer( worldcountries, {
+        rendererFactory: L.svg.tile,
+        zIndex:1000,
+        vectorTileLayerStyles: {
+            sliced: function(properties, zoom) {
+                var p = properties.mapcolor7 % 5;
+                return {
+                    fillOpacity: 0.5,
+                    //fillOpacity: 1,
+                    stroke: true,
+                    fill: false,
+                    color: 'black', 
+                        //opacity: 0.2,
+                    weight: 0.50,
+                }
+            }
+        },
+        interactive: true,
+        getFeatureId: function(f) {
+            return f.properties.wb_a3;
+        }
+    }).addTo(LeafletMap);
+
+    var vectorGrid = L.vectorGrid.slicer( usstates, {
+        rendererFactory: L.svg.tile,
+        zIndex:1000,
+        vectorTileLayerStyles: {
+            sliced: function(properties, zoom) {
+                var p = properties.mapcolor7 % 5;
+                return {
+                    fillOpacity: 0.5,
+                    stroke: true,
+                    fill: false,
+                    color: 'black', 
+                    weight: 0.50,
+                }
+            }
+        },
+        interactive: true,
+        getFeatureId: function(f) {
+            return f.properties.wb_a3;
+        }
+    }).addTo(LeafletMap);
+
+    var grid = L.latlngGraticule({
+        showLabel: true,
+        opacity: 0.6,
+        weight: 0.5,
+        color: "#101010",
+        zoomInterval: [
+            { start: 0, end: 3, interval: 30 },
+            { start: 4, end: 7, interval: 15 },
+            { start: 8, end: 10, interval: 5 },
+            { start: 11, end: 12, interval: 1 },
+            { start: 13, end: 15, interval: 0.5 },
+            { start: 16, end: 18, interval: 0.25 },
+        ],
+    }).addTo(LeafletMap);
+
+    var CartoDB_PositronOnlyLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: 'abcd',
+        maxZoom: 13,
+        zIndex:100000
+    }).addTo(LeafletMap)
+
+    var iconCreated = false
+
+
+    // Define the URL of the geojson data
+    var url = "/static/points.geojson";
+
+    // Use fetch to get the geojson data
+    fetch(url)
+
+	.then(function(response) {
+		return response.json();
+	})
+
+	.then(function(mydata) {
+		LeafletMap.on('zoomend',function() {
+			if (LeafletMap.getZoom()>=13) {
+				L.DomUtil.addClass(LeafletMap.getContainer(), 'disable-pointer');
+			}
+			else {
+				L.DomUtil.removeClass(LeafletMap.getContainer(), 'disable-pointer');
+			}
+			if (iconCreated) {
+				resizeClusterIcons(4)
+			} else {
+				setTimeout(function() {
+					resizeClusterIcons(4)
+				},500);
+			}
+			})
+			
+
+		LeafletMap.on('move',function() {
+			if (iconCreated) {
+				resizeClusterIcons(4)
+			} else {
+				setTimeout(function() {
+					resizeClusterIcons(4)
+				},500);
+			}
+
+		})
+
+
+		// Define an array to store the markers
+		markers = [];
+		// Loop through the features in the geojson data
+		for (var i = 0; i < mydata.features.length; i++) {
+			// Get the properties of the feature
+			var properties = mydata.features[i].properties;
+
+			// Create a new marker with a pie chart icon
+			var marker = L.marker(new L.LatLng(mydata.features[i].geometry.coordinates[1], mydata.features[i].geometry.coordinates[0]), {
+				icon: L.divIcon({
+				className: 'marker-cluster',
+				html: '<div class="pie"></div>',
+				iconSize: new L.Point(20, 20)
+				})
+			});
+			// Add the ptype to the marker's data
+			marker.data = properties.ptype;
+			marker.index = properties.index;
+			// Add the marker to the array
+			markers.push(marker);
+		}
+		filter()
+
+
+	})
+
+
+    function resizeClusterIcons(ptype) {
+		group = L.layerGroup().addTo(LeafletMap)
+		if (ptype==0) {
+			raincheck = !raincheck
+		}
+		if (ptype==1) {
+			ipcheck = !ipcheck
+		}
+		if (ptype==2) {
+			frzrcheck = !frzrcheck
+		}	
+		if (ptype==3) {
+			snowcheck = !snowcheck
+		}	
+
+		try {
+			LeafletMap.removeLayer(ptsGrid)
+		}
+		catch{}
+		LeafletMap.eachLayer(function(layer) {
+		  if (layer instanceof L.LayerGroup) {
+			layer.eachLayer(function(childLayer) {
+			  if (childLayer instanceof L.GeoJSON) {
+				LeafletMap.removeLayer(childLayer);
+			  }
+			});
+		  }
+		  if (layer instanceof L.GeoJSON) {
+			LeafletMap.removeLayer(layer);
+		  }
+		});	
+		if (LeafletMap.getZoom()>=13) {
+			var newfiltered = []
+			test = LeafletMap.getBounds()
+			test['_northEast']['lat'] = test['_northEast']['lat'] + 0.25
+			LeafletMap.eachLayer(function(testlayer) {
+				if (testlayer._cLatLng){
+					if (LeafletMap.getBounds().contains(testlayer._cLatLng)) {
+						var mymarkers = testlayer.getAllChildMarkers()
+						mymarkers.forEach(function(marker) {
+							if (marker.data==0 && raincheck) {
+								mygeojson = marker.toGeoJSON()
+								mygeojson.properties.ptype = marker.data
+								mygeojson.properties.index = marker.index
+								newfiltered.push(mygeojson)
+							}
+                            if (marker.data==1 && ipcheck) {
+                                mygeojson = marker.toGeoJSON()
+                                mygeojson.properties.ptype = marker.data
+								mygeojson.properties.index = marker.index
+                                newfiltered.push(mygeojson)
+                            }
+                            if (marker.data==2 && frzrcheck) {
+                                mygeojson = marker.toGeoJSON()
+                                mygeojson.properties.ptype = marker.data
+								mygeojson.properties.index = marker.index
+                                newfiltered.push(mygeojson)
+                            }
+                            if (marker.data==3 && snowcheck) {
+                                mygeojson = marker.toGeoJSON()
+                                mygeojson.properties.ptype = marker.data
+								mygeojson.properties.index = marker.index
+                                newfiltered.push(mygeojson)
+                            }
+						})
+					}
+				}
+			})
+			var mynewFilteredData = {type:'FeatureCollection',features:newfiltered}
+			var cirmarkers = L.geoJSON(mynewFilteredData, {
+				pointToLayer: function(feature,latlng) {
+				console.log(feature)
+				if (feature.properties.ptype==0) {mycolor = "green"}
+				if (feature.properties.ptype==1) {mycolor = "red"}
+				if (feature.properties.ptype==2) {mycolor = "pink"}
+				if (feature.properties.ptype==3) {mycolor = "blue"}
+				return L.circleMarker(latlng, {
+					radius:10,
+					fill:true,
+					fillColor:mycolor,
+					color:'black',
+					opacity:1,
+					fillOpacity:.4,
+					weight:1,
+					zIndexOffset: 10000000,
+				})
+				},
+				onEachFeature: function(feature,layer) {
+					layer.on('mouseover', function (e) {
+						this.setStyle({fillOpacity:1})
+						myidx = this.feature.properties.index
+						myurl = '/static/jsons/' + myidx.toString() + '.json'
+						console.log(myurl)
+						loadsounding(myurl)
+						L.DomUtil.addClass(LeafletMap._container,'cursorchange');
+					})
+					layer.on('mouseout',function(e) {
+						defaultcolor = this.defaultOptions.fillColor
+						this.setStyle({fillOpacity:.4})
+						L.DomUtil.removeClass(LeafletMap._container,'cursorchange');
+					})
+				}
+			}).addTo(group)
+			cirmarkers.eachLayer(function(layer) {layer.bringToFront()})
+		}
+        var mycount = 0
+        LeafletMap.eachLayer(function(layer) {
+            var maxcount = 0
+            if (layer._cLatLng) {
+                if (LeafletMap.getBounds().contains(layer._cLatLng)) {
+                    layer.getAllChildMarkers().map(function(marker) {
+                        maxcount++
+                    })
+                }
+            }
+            if (maxcount>mycount) {mycount = maxcount}
+        })
+        LeafletMap.eachLayer(function(layer) {
+            if (layer._cLatLng) {
+                var data = layer.getAllChildMarkers().map(function(marker) {
+                    return marker.data;
+                });
+
+                // Count the number of markers in each ptype category
+                var counts = 0;
+                var ptypecounts = {0:0,1:0,2:0,3:0}
+                data.forEach(function(d) {
+                    counts++
+                    ptypecounts[d]++
+                });
+                //markerno = layer.getAllChildMarkers().length
+                var mysize = Math.ceil((counts/mycount) * 24);
+                total = data.length
+                ptypecounts[0] = (ptypecounts[0]/total)*100
+                ptypecounts[1] = (ptypecounts[1]/total)*100
+                ptypecounts[2] = (ptypecounts[2]/total)*100
+                ptypecounts[3] = (ptypecounts[3]/total)*100
+                circ = 2*mysize*Math.PI
+                ratio = mysize/16
+                stroke = mysize/3
+				if (LeafletMap.getZoom()<13) {
+					var myhtml = '<svg viewBox="0 0 56 56"><g stroke-width="' + stroke + '">' +
+						'<circle fill="rgba(255,255,255,0)" r="' + mysize + '" cx="28" cy="28" stroke-dasharray="' + ptypecounts[0]*ratio + ' ' + circ + '" stroke-dashoffset="0" stroke="green" />' +
+						'<circle fill="rgba(255,255,255,0)" r="' + mysize + '" cx="28" cy="28" stroke-dasharray="' + ptypecounts[1]*ratio + ' ' + circ + '" stroke-dashoffset="' + (-ratio*ptypecounts[0]) + '" stroke="red" />' +
+						'<circle fill="rgba(255,255,255,0)" r="' + mysize + '" cx="28" cy="28" stroke-dasharray="' + ptypecounts[2]*ratio + ' ' + circ + '" stroke-dashoffset="' + (-ratio*(ptypecounts[0] + ptypecounts[1])) + '" stroke="pink" />' +
+						'<circle fill="rgba(255,255,255,0)" r="' + mysize + '" cx="28" cy="28" stroke-dasharray="' + ptypecounts[3]*ratio + ' ' + circ + '" stroke-dashoffset="' + (-ratio*(ptypecounts[0] + ptypecounts[1] + ptypecounts[2])) + '" stroke="blue" />'
+				}
+				else {
+					var myhtml = ''
+				}
+                var myicon = L.divIcon({
+                    className: 'marker-cluster',
+                    html: myhtml,
+                    iconSize: new L.Point(56,56)
+                });
+			}
+		})
+		myfilter(4)
+		iconCreated = false
+    }
+
+	function filter() {
+		// Create a marker cluster group and add the markers to it
+		
+		var markerClusterGroup = L.markerClusterGroup({
+			maxClusterRadius:60,
+			spiderfyOnMaxZoom: true,
+			showCoverageOnHover: true,
+			iconCreateFunction: function(cluster) {
+				iconCreated = true;
+				// Get the data for all the markers in the cluster
+				var data = cluster.getAllChildMarkers().map(function(marker) {
+				return marker.data;
+				});
+
+				// Count the number of markers in each ptype category
+				var counts = {0:0,1:0,2:0,3:0};
+				data.forEach(function(d) {
+					counts[d]++
+				});
+				total = data.length
+				counts[0] = (counts[0]/total)*100
+				counts[1] = (counts[1]/total)*100
+				counts[2] = (counts[2]/total)*100
+				counts[3] = (counts[3]/total)*100
+				var html = '<svg viewBox="0 0 32 32"><g stroke-width="4">' +
+					'<circle fill="rgba(255,255,255,0)" r="14" cx="16" cy="16" stroke-dasharray="' + counts[0] + ' 88" stroke-dashoffset="0" stroke="none" />' +
+					'<circle fill="rgba(255,255,255,0)" r="14" cx="16" cy="16" stroke-dasharray="' + counts[1] + ' 88" stroke-dashoffset="' + (-counts[0]) + '" stroke="none" />' +
+					'<circle fill="rgba(255,255,255,0)" r="14" cx="16" cy="16" stroke-dasharray="' + counts[2] + ' 88" stroke-dashoffset="' + (-(counts[0] + counts[1])) + '" stroke="none" />' +
+					'<circle fill="rgba(255,255,255,0)" r="14" cx="16" cy="16" stroke-dasharray="' + counts[3] + ' 88" stroke-dashoffset="' + (-(counts[0] + counts[1] + counts[2])) + '" stroke="none" />'
+					'</g></svg>'
+				var icon = L.divIcon({
+					className: 'marker-cluster',
+					html: html,
+					iconSize: new L.Point(32,32)
+				});
+				return icon	
+
+			}
+		})
+		// Add the marker cluster group to the Leaflet map
+		markerClusterGroup.addLayers(markers);
+		markerClusterGroup.addTo(LeafletMap);
+		resizeClusterIcons(4)
+	}	
+    function myfilter(ptype) {
+        mycount = 0
+        if (ptype==0) {
+            raincheck = !raincheck
+        }
+        if (ptype==1) {
+            ipcheck = !ipcheck
+        }
+        if (ptype==2) {
+            frzrcheck = !frzrcheck
+        }
+        if (ptype==3) {
+            snowcheck = !snowcheck
+        }
+
+        var mycount = 0
+        LeafletMap.eachLayer(function(layer) {
+            maxcount = 0
+            if (layer._cLatLng) {
+                if (LeafletMap.getBounds().contains(layer._cLatLng)) {
+                    ptypecounts = {0:0,1:0,2:0,3:0}
+                    mymarkers = layer.getAllChildMarkers()
+                    filteredMarkers = mymarkers.filter(function(mymarker) {
+                        if (raincheck && mymarker.data==0) {
+                            maxcount++
+                        }
+                        if (snowcheck && mymarker.data==3) {
+                            maxcount++
+                        }
+                        if (ipcheck && mymarker.data==1) {
+                            maxcount++
+                        }
+                        if (frzrcheck && mymarker.data==2) {
+                            maxcount++
+                        }
+                    })
+                }
+            }
+            if (maxcount>mycount) {
+                mycount = maxcount
+            }
+        })
+        LeafletMap.eachLayer(function(layer) {
+            if (layer._cLatLng) {
+                if (LeafletMap.getBounds().contains(layer._cLatLng)) {
+                    ptypecounts = {0:0,1:0,2:0,3:0}
+                    mymarkers = layer.getAllChildMarkers()
+                    filteredMarkers = mymarkers.filter(function(mymarker) {
+                        if (raincheck && mymarker.data==0) {
+                            ptypecounts[0]++
+                            return true
+                        }
+                        if (snowcheck && mymarker.data==3) {
+                            ptypecounts[3]++
+                            return true
+                        }
+                        if (ipcheck && mymarker.data==1) {
+                            ptypecounts[1]++
+                            return true
+                        }
+                        if (frzrcheck && mymarker.data==2) {
+                            ptypecounts[2]++
+                            return true
+                        }
+                    })
+                    var mysize = Math.ceil(((ptypecounts[0]+ptypecounts[1]+ptypecounts[2]+ptypecounts[3])/mycount) * 24);
+                    total = filteredMarkers.length
+                    ptypecounts[0] = (ptypecounts[0]/total)*100
+                    ptypecounts[1] = (ptypecounts[1]/total)*100
+                    ptypecounts[2] = (ptypecounts[2]/total)*100
+                    ptypecounts[3] = (ptypecounts[3]/total)*100
+                    circ = 2*mysize*Math.PI
+                    ratio = mysize/16
+                    stroke = mysize/3
+                    if (LeafletMap.getZoom()<13) {
+                        var myhtml = '<svg viewBox="0 0 56 56"><g stroke-width="' + stroke + '">' +
+                            '<circle fill="rgba(255,255,255,0)" r="' + mysize + '" cx="28" cy="28" stroke-dasharray="' + ptypecounts[0]*ratio + ' ' + circ + '" stroke-dashoffset="0" stroke="green" />' +
+                            '<circle fill="rgba(255,255,255,0)" r="' + mysize + '" cx="28" cy="28" stroke-dasharray="' + ptypecounts[1]*ratio + ' ' + circ + '" stroke-dashoffset="' + (-ratio*ptypecounts[0]) + '" stroke="red" />' +
+                            '<circle fill="rgba(255,255,255,0)" r="' + mysize + '" cx="28" cy="28" stroke-dasharray="' + ptypecounts[2]*ratio + ' ' + circ + '" stroke-dashoffset="' + (-ratio*(ptypecounts[0] + ptypecounts[1])) + '" stroke="pink" />' +
+                            '<circle fill="rgba(255,255,255,0)" r="' + mysize + '" cx="28" cy="28" stroke-dasharray="' + ptypecounts[3]*ratio + ' ' + circ + '" stroke-dashoffset="' + (-ratio*(ptypecounts[0] + ptypecounts[1] + ptypecounts[2])) + '" stroke="blue" />'
+                    }
+                    else {
+                        var myhtml = ''
+                    }
+                    var myicon = L.divIcon({
+                        className: 'marker-cluster',
+                        html: myhtml,
+                        iconSize: new L.Point(56,56)
+                    });
+                    layer.setIcon(myicon)
+                }
+            }
+        })
+    
+    }   
+
+
+    // Sounding SVG sizing
+    var m = [30, 40, 20, 35],
+        w = 650 - m[1] - m[3],
+        h = 650 - m[0] - m[2];
+
+    // Axis and coordinate conversion prep
+    var deg2rad = (Math.PI/180);
+    var tan = Math.tan(55*deg2rad),
+        basep = 1050,
+        topp = 100,
+        plines = [1000,850,700,500,300,200,100],
+        pticks = [950,900,800,750,650,600,550,450,400,350,250,150],
+        barbsize = 25;
+
+    // Scales and axes. Note the inverted domain for the y-scale: bigger is up!
+    var x = d3.scale.linear().range([0, w]).domain([-45,50]),
+        y = d3.scale.log().range([0, h]).domain([topp, basep])
+        r = d3.scale.linear().range([0,300]).domain([0,150]),
+        y2 = d3.scale.linear(),
+        xAxis = d3.svg.axis().scale(x).tickSize(0,0).ticks(10).orient("bottom"),
+        yAxis = d3.svg.axis().scale(y).tickSize(0,0).tickValues(plines)
+                  .tickFormat(d3.format(".0d")).orient("left"),
+        yAxis2 = d3.svg.axis().scale(y).tickSize(5,0).tickValues(pticks).orient("right"); // just for ticks
+
+    // various path generators
+    var line = d3.svg.line()
+        .interpolate("linear")
+        .x(function(d,i) { return x(d.temp) + (y(basep)-y(d.press))/tan; })
+        //.x(function(d,i) { return x(d.temp); })
+        .y(function(d,i) { return y(d.press); });
+
+    var line2 = d3.svg.line()
+        .interpolate("linear")
+        .x(function(d,i) { return x(d.dwpt) + (y(basep)-y(d.press))/tan; })
+        .y(function(d,i) { return y(d.press); });
+
+    // create svg container for sounding
+    var svg = d3.select("div#mainbox").append("svg")
+          .attr("width", w + m[1] + m[3])
+          .attr("height", h + m[0] + m[2])
+          .attr("pointer-events","all")
+        .append("g")
+          .attr("transform", "translate(" + m[3] + "," + m[0] + ")");
+
+    // Initial ptype output for bar graph
+    var ptypedata = [{
+            "name": "Freezing Rain",
+            "value": 0.0,
+    "color": "pink",
+    },
+        {
+            "name": "Sleet",
+            "value": 0.0,
+    "color": "red",
+    },
+        {
+            "name": "Rain",
+            "value": 0.0,
+    "color": "green",
+    },
+        {
+            "name": "Snow",
+            "value": 0.0,
+    "color": "blue",
+    }];
+
+    // Draw sounding background
+    drawBackground();
+
+
+    // Create sounding background
+    function drawBackground() {
+        var svg = d3.select("div#mainbox svg g").append("g").attr("class", "skewtbg");
+
+        var dryline = d3.svg.line()
+            .interpolate("linear")
+            .x(function(d,i) { return x( ( 273.15 + d ) / Math.pow( (1000/pp[i]), 0.286) -273.15) + (y(basep)-y(pp[i]))/tan;})
+            .y(function(d,i) { return y(pp[i])} );
+
+        tooltip = d3.select("div#mainbox").append("div")
+            .style("position","absolute")
+            .style("z-index","10")
+            .style("visibility","hidden")
+            .text("a simple tooltip");
+
+        // Add clipping path
+        svg.append("clipPath")
+            .attr("id", "clipper")
+            .append("rect")
+            .attr("x", 0)
+            .attr("y", 0)
+            .attr("width", w)
+            .attr("height", h);
+
+        // Skewed temperature lines
+        svg.selectAll("gline")
+            .data(d3.range(-100,45,10))
+             .enter().append("line")
+             .attr("x1", function(d) { return x(d)-0.5 + (y(basep)-y(100))/tan; })
+             .attr("x2", function(d) { return x(d)-0.5; })
+             .attr("y1", 0)
+             .attr("y2", h)
+             .attr("class", function(d) { if (d == 0) { return "tempzero"; } else { return "gridline"}})
+             .attr("clip-path", "url(#clipper)");
+        // Logarithmic pressure lines
+        svg.selectAll("gline2")
+            .data(plines)
+             .enter().append("line")
+             .attr("x1", 0)
+             .attr("x2", w)
+             .attr("y1", function(d) { return y(d); })
+             .attr("y2", function(d) { return y(d); })
+             .attr("class", "gridline");
+
+        // create array to plot dry adiabats
+        var pp = d3.range(topp,basep+1,10);
+        var dryad = d3.range(-30,240,20);
+        var all = [];
+        for (i=0; i<dryad.length; i++) {
+            var z = [];
+            for (j=0; j<pp.length; j++) { z.push(dryad[i]); }
+            all.push(z);
+        }
+
+        svg.append("g").attr("class","x axis").attr("transform","translate(0," + (h-0.5) + ")").call(xAxis);
+        svg.append("g").attr("class","y axis").attr("transform","translate(-0.5,0)").call(yAxis);
+        svg.append("g").attr("class","y axis ticks").attr("transform","translate(-0.5,0)").call(yAxis2);
+    }
+    // transform temperature data to grid coordinates
+    function datatransform(){
+        var new_array = points.map(function(e) {
+        e[0] = x(e[0])+(y(1050)-y(e[1]))/tan
+        e[1] = y(e[1]);
+        return e;
+    })}
+
+    // transform dewpoint data to grid coordinates
+    function datatransformdwpt(){
+        var new_array = dwptpoints.map(function(e) {
+        e[0] = x(e[0])+(y(1050)-y(e[1]))/tan
+        e[1] = y(e[1]);
+        return e;
+    })}
+    // add temperature and dewpoint points/circles
+    function myFunc(point,index) {
+        ptx = point[0];
+        pty = point[1];
+
+        dwpt = dwptpoints[index]
+        dwptx = dwpt[0];
+        dwpty = dwpt[1];
+
+        mytemp = x.invert(ptx-((y(1050)-pty)/tan));
+        mydew = x.invert(dwptx-((y(1050)-dwpty)/tan));
+
+        svg.append("g")
+        .attr("transform",`translate(${ptx},${pty})`)
+        .append("circle")
+        .attr("r",3)
+        .attr("fill","red")
+        .attr("originx",ptx)
+        .attr("originy",pty)
+    .attr("transform","translate(0,0)")
+        .attr("id",index)
+        .attr("temperature",mytemp)
+        .attr("datatype","temperature")
+        .on("mouseover",function(){
+            $(this).attr("r",7);
+            return tooltip.style("top",(event.pageY - 30) + "px")
+                .text(Math.round($(this).attr("temperature")*10)/10)
+                .style("left",event.offsetX + 70 + "px")
+                .style("visibility","visible")
+                .style("background-color","white");
+        })
+
+        .on("mouseout",function(){
+            $(this).attr("r",3);
+            return tooltip.style("visibility","hidden");
+        });
+
+
+        svg.append("g")
+            .attr("transform",`translate(${dwptx},${dwpty})`)
+            .append("circle")
+            .attr("r",3)
+            .attr("fill","green")
+            .attr("originx",dwptx)
+            .attr("originy",dwpty)
+            .attr("id",index)
+            .attr("dewpoint",mydew)
+            .attr("datatype","dewpoint")
+            .on("mouseover",function(){
+                $(this).attr("r",7);
+                return tooltip.style("top",(event.pageY - 30) + "px")
+                    .text(Math.round($(this).attr("dewpoint")*10)/10)
+                    .style("left",event.offsetX + 70 + "px")
+                    .style("visibility","visible")
+                    .style("background-color","white");
+            })
+            .on("mouseout",function(){
+                $(this).attr("r",3);
+                return tooltip.style("visibility","hidden");
+            });
+
+    }
+
+    // Load sounding data for clicked location
+    function loadsounding(locationstr){
+
+        // Remove old lines and points
+        d3.select("#dwptpath").remove();
+        d3.select("#temppath").remove();
+        d3.selectAll("circle").remove();
+
+        points = [];
+        dwptpoints = [];
+
+        // Read json sounding data from file
+        d3.json(myurl,function(err,json) {
+                pres = json["pres"];
+                tmpc = json["temp"];
+                dpt = json["dew"];
+                uwnd = json["uwnd"];
+                vwnd = json["vwnd"];
+
+                // Transform temperature and dewpoint into graph coordinates
+                prestmpc = tmpc.map(function(e, i) {
+                    pres_temporary = pres[i];
+                    pres_transform = y(pres_temporary);
+                    base_transform = y(1050);
+                    tmpc_transform = x(e)+(base_transform-pres_transform)/tan
+                    return [tmpc_transform,pres_transform];
+                })
+                presdpt = dpt.map(function(e, i) {
+                    pres_temporary = pres[i];
+                    pres_transform = y(pres_temporary);
+                    base_transform = y(1050);
+                    dpt_transform = x(e)+(base_transform-pres_transform)/tan;
+                    return [dpt_transform,pres_transform];
+                })
+
+                points.push(prestmpc);
+                dwptpoints.push(presdpt);
+                points = points[0];
+                dwptpoints = dwptpoints[0];
+                points.forEach((point,index) => myFunc(point,index));
+
+        })
+
+        datatransform();
+        datatransformdwpt();
+
+        // Draws each temp and dewpoint point
+        points.forEach((point,index) => myFunc(point,index));
+        // Add temperature line
+        svg.append("path")
+            .datum(points)
+            .attr("fill","none")
+            .attr("stroke","red")
+            .attr("stroke-width",1.5)
+            .attr("id","temppath")
+            .attr("datatype","temperature")
+        ;
+
+        // Add dewpoint line
+        svg.append("path")
+            .datum(dwptpoints)
+            .attr("fill","none")
+            .attr("stroke","green")
+            .attr("stroke-width",1.5)
+            .attr("id","dwptpath")
+            .attr("datatype","dewpoint")
+        ;
+    }
+
+</script>
